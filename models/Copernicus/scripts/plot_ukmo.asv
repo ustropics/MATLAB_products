@@ -1,0 +1,10 @@
+clear
+close all
+
+filename = '../data/prate/ukmo_Mar2024.nc';
+ncdisp(filename)
+
+lat = ncread(filename,'latitude');
+lon = ncread(filename,'longitude');
+prate = ncread(filename,'tpara');
+
