@@ -1,0 +1,150 @@
+%% 1. read in data files
+CanCM4_file = '../../NMME/data/netcdf4/CanCM4i.prate.202003.ENSMEAN.anom.nc';
+GEM5_file = '../../NMME/data/netcdf4/GEM_NEMO.prate.202003.ENSMEAN.anom.nc';
+ECMWF_file = '../../data/netcdf4/ecmwf_Mar2020_prate.nc';
+UKMO_file = '../../data/netcdf4/ukmo_Mar2020_prate.nc';
+reanalysis = '../../Reanalysis/data/prate_2020_JJA.nc';
+borders = m_shaperead('../../Borders/ne_110m_admin_1_states_provinces');
+borders2 = m_shaperead('../../Borders/ne_10m_admin_0_countries');
+
+ncdisp(ECMWF_file)
+
+%% 2. set variables
+month1 = 4;
+month2 = 5;
+month3 = 6;
+
+cm1 = othercolor('BrBG5',30);
+CI = -7:.02:7;
+
+%% 3. extract necessary data and set to arrays
+% grab the month, year, and year string from file
+[month, year] = extractDate(CanCM4_file);
+month_str = convertMonthStr(month);
+month1_str = convertMonthStr(month + month1-1);
+month3_str = convertMonthStr(month + month3-1);
+
+% get lon and lat values
+lon = ncread(ECMWF_file,'longitude');
+lat = ncread(ECMWF_file,'latitude');
+
+% get prate data from reanalysis
+lat2 = ncread(reanalysis, 'lat');
+lon2 = ncread(reanalysis, 'lon');
+prate = ncread(reanalyis, 'prate');
+
+% ensure longitude is sorted in ascending order and wrap data
+xlon = wrapTo180(lon2); % wrap data to [-180,180]
+
+% sort wrapped data in ascending order/store with indices
+[xlonSorted, xlonOrder] = sort(xlon(:));
+xprate = prate(xlonOrder,:); % sort plot data
+
+% extract fcst/prate 3D data
+CANCM4_fcst = ncread(CanCM4_file,'fcst');
+GEM5_fcst = ncread(GEM5_file,'fcst');
+ECMWF_fcst = ncread(ECMWF_file,'tpara');
+UKMO_fcst = ncread(UKMO_file,'tpara');
+
+% sqeeze out necessary lead months to create 2D data for seasonal fcst
+CANCM4_fcst_month1 = squeeze(CANCM4_fcst(:,1:end-1,month1));
+GEM5_fcst_month1 = squeeze(GEM5_fcst(:,1:end-1,month1));
+ECMWF_fcst_month1 = squeeze(ECMWF_fcst(:,:,month1));
+UKMO_fcst_month1 = squeeze(UKMO_fcst(:,:,month1));
+
+CANCM4_fcst_month2 = squeeze(CANCM4_fcst(:,1:end-1,month2));
+GEM5_fcst_month2 = squeeze(GEM5_fcst(:,1:end-1,month2));
+ECMWF_fcst_month2 = squeeze(ECMWF_fcst(:,:,month2));
+UKMO_fcst_month2 = squeeze(UKMO_fcst(:,:,month2));
+
+CANCM4_fcst_month3 = squeeze(CANCM4_fcst(:,1:end-1,month3));
+GEM5_fcst_month3 = squeeze(GEM5_fcst(:,1:end-1,month3));
+ECMWF_fcst_month3 = squeeze(ECMWF_fcst(:,:,month3));
+UKMO_fcst_month3 = squeeze(UKMO_fcst(:,:,month3));
+
+%% 4. perform calculations
+% create CanSIPS monthly forecast
+CanSIPS_average_month1 = (CANCM4_fcst_month1 + GEM5_fcst_month1) / 2;
+CanSIPS_average_month2 = (CANCM4_fcst_month2 + GEM5_fcst_month2) / 2;
+CanSIPS_average_month3 = (CANCM4_fcst_month3 + GEM5_fcst_month3) / 2;
+
+% create CanSIPS seasonal forecast
+CanSIPS_seasonal_fcst = (CanSIPS_average_month1 + CanSIPS_average_month2 + CanSIPS_average_month3) / 3;
+
+% create ECMWF seasonal forecast
+ECMWF_seasonal_fcst = (ECMWF_fcst_month1 + ECMWF_fcst_month2 + ECMWF_fcst_month3) / 3;
+
+% create UKMO seasonal forecast
+UKMO_seasonal_fcst = (UKMO_fcst_month1 + UKMO_fcst_month2 + UKMO_fcst_month3) / 3;
+
+% create final model blend forecast
+model_blend_fcst = (CanSIPS_seasonal_fcst*1e5 + ECMWF_seasonal_fcst*1e8 + UKMO_seasonal_fcst*1e8) / 3;
+ecmwf_ukmo_blend = (ECMWF_seasonal_fcst + UKMO_seasonal_fcst)*1e8 / 2;
+
+%% 5. create projection and plot data
+% create figure and set position
+f = figure('Units','normalized','Position',[.1,.1,.8,.8]);
+hold on;
+
+subplot(2,1,1)
+hold on;
+% create map projection and set lat/lon boundary region
+m_proj('miller','lon',[230 360],'lat',[0 60]);
+% m_proj('miller','lon',[0 360],'lat',[-60 60]);
+
+% plot data shading
+m_contourf(lon,lat,model_blend_fcst',CI,'linestyle','none')
+set(gca,'colormap',cm1)
+set(gca,'clim',[-2 2]);
+
+% plot US continent, coastlines, and state boundaries
+
+% plot state borders
+for k=1: length(borders.ncst)
+    m_plot(borders.ncst{k}(:,1)+360, borders.ncst{k}(:,2),'color','#3d3d5c','linewidth',1);
+end
+
+for k=1: length(borders2.ncst)
+    m_plot(borders2.ncst{k}(:,1)+360, borders2.ncst{k}(:,2),'color','#3d3d5c','linewidth',1);
+end
+
+% label latitude and longitude on the map
+m_grid('tickdir','out','ticklength',.005,'linewi',1,'fontsize',10,...
+    'xtick',0:20:360,'ytick',-90:10:90)
+
+cb = colorbar();
+ylabel(cb, 'Precipitation Rates (inches)','FontSize',12,'Rotation',270);
+
+% Define title
+titleString = sprintf(['\\fontsize{18}CanSIPS, ECMWF, and UKMET Superblend for Precipitation Rate' ...
+    '\n\\fontsize{16}%s - %s %s'],month1_str,month3_str,num2str(year));
+
+% Create and format the title
+ttl = title(titleString, 'fontsize', 20);
+ttl.Units = 'normalized';
+ttl.Position(1) = 0;
+ttl.HorizontalAlignment = 'left';
+
+subplot(2,1,2)
+hold on
+
+CI2 = -8:.5:8;
+m_contourf(xlonSorted,lat2,xprate',CI2,'linestyle','none');
+set(gca,'colormap',cm1)
+set(gca,'fontsize',20,'clim',[-6 6])
+
+% m_coast('patch',[.9 .9 .9],'edgecolor','k');
+m_coast('line','color','k');
+
+%% 5. set colorbar, title, and grid labels
+cb = colorbar();
+ylabel(cb, 'Precipitation Rate Anomalies (mm/day)','FontSize',14,'Rotation',270);
+
+% label latitude and longitudes on map
+m_grid('tickdir','out','ticklength',.005,'linewi',1,'fontsize',10,...
+    'xtick',0:20:360,'ytick',-90:10:90)
+
+
+exportgraphics(f,sprintf('../../images/superblend_verification_%s%s_%s-%s.jpg',month_str,num2str(year),month1_str,month3_str))
+
+
